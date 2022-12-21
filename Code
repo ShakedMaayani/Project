@@ -1,0 +1,500 @@
+import numpy as np
+import xlrd
+import gurobipy as gp
+from gurobipy import GRB
+from xlrd import open_workbook
+import openpyxl
+from openpyxl import load_workbook
+
+
+#פונקציה לקריאת קבצי אקסל
+def read_excel(path, sheetstr):
+    wb = xlrd.open_workbook(path)
+    if sheetstr=="containers":
+            sheet = wb.sheet_by_index(3)
+            lst = []
+            lst_index=-1
+            for i in range(0, sheet.nrows - 1):
+                if sheet.cell_value(i+1,4)>0:
+                    lst.append([])
+                    lst_index+=1
+                    for j in range(sheet.ncols):
+                        try:
+                            lst[lst_index].append(int(sheet.cell_value(i + 1, j)))
+                        except:
+                            lst[lst_index].append(sheet.cell_value(i + 1, j))
+            return lst
+    if sheetstr== "trucks":
+        sheet = wb.sheet_by_index(1)
+    if sheetstr== "drisha":
+        sheet = wb.sheet_by_index(2)
+    if sheetstr== "distance":
+        sheet = wb.sheet_by_index(4)
+    if sheetstr== "results":
+        sheet = wb.sheet_by_index(8)
+    lst= []
+    for i in range (0, sheet.nrows-1):
+        lst.append([])
+        for j in range(sheet.ncols):
+            try:
+                lst[i].append(float(sheet.cell_value(i+1, j)))
+            except:
+                lst[i].append(sheet.cell_value(i+1, j))
+    return lst
+
+
+
+
+
+#קריאה לפונקציית קריאת הקבצים
+containers = read_excel("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx","containers")
+trucks = read_excel("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx", "trucks")
+drisha = read_excel("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx", "drisha")
+distance = read_excel("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx", "distance")
+print("excel reading starts here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+print(containers)
+print(len(containers))
+print("drishaaaaaa",drisha)
+print(len(drisha))
+print(trucks)
+print(len(trucks))
+print(distance)
+print(len(distance))
+
+for i in range(len(containers)):
+    for m in range(len(distance)):
+        if containers[i][4] == distance[m][0]:
+            containers[i].append(distance[m][1])
+
+print(containers)
+print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!end of excel reading!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+alpha=0.09
+q = 2
+for o in range(1):
+
+    m = gp.Model("multiobj")
+
+    sites=len(drisha[0])-3
+    print("sitesssssssssssss", sites)
+    maxrides = min(10,len((containers)))
+
+    #####קוד לניקוי של XJRK באקסל
+    wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+    sheets = wb.sheetnames
+    result_sheet = wb[sheets[6]]
+
+
+
+    for j in range(len(trucks)):
+        for r in range(maxrides):
+            result_sheet.cell(row=r+2, column=j+2).value=" "
+
+
+    wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+
+
+    ###קוד לניקוי  של YJRI באקסל
+    wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+    sheets = wb.sheetnames
+    result_sheet = wb[sheets[5]]
+
+
+    for j in range(len(trucks)):
+        for r in range(maxrides):
+            result_sheet.cell(row=r+2, column=j+2).value=0
+
+
+
+    wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+
+
+
+
+    #####nirmul parameters calculation#####
+
+    maxdistance=0
+    for i in range(len(containers)):
+        maxdistance=maxdistance+int(containers[i][5])*2
+    maxdistance=maxdistance-(maxdistance/len(containers))
+
+    maxtime=maxdistance/trucks[0][2]
+
+    maxcost=trucks[0][3]*len(trucks)
+
+
+    print("max time", maxtime)
+    print("max cost", maxcost)
+    print("max distance", maxdistance)
+
+
+    #Creating the Xjrk matrix vars
+    xjrk = []
+    for j in range(len(trucks)):
+        xjrk.append([])
+        #print("j=",j)
+        for r in range(maxrides):
+            xjrk[j].append([])
+            #print("r=",r)
+            for k in range (sites):
+                xjrk[j][r].append(m.addVar(vtype=GRB.BINARY))
+                #print("k=",k)
+
+
+    #Creating the Yjri matrix vars
+    yjri = []
+    for j in range(len(trucks)):
+        yjri.append([])
+        #print("j=",j)
+        for r in range(maxrides):
+            yjri[j].append([])
+            #print("r=",r)
+            for i in range (len(containers)):
+                yjri[j][r].append(m.addVar(vtype=GRB.BINARY))
+                #print("i=",i)
+
+
+    #Creating the Aik matrix parameters
+    aik = []
+    for i in range(len(containers)):
+        aik.append([])
+        #print("j=",j)
+        for k in range(sites):
+            aik[i].append(0)
+            if containers[i][4]==k+1:
+                aik[i][k]=1
+
+    print("aaaaaaaaaiiiiiiiiikkkkkkkkkkk",aik)
+    ##########פונקצית זמן################
+
+
+    tau=m.addVar()
+    ##אילוצי זמן
+    ####זמן כולל רק הלוך!!!!###
+
+
+    for j in range(len(trucks)):
+        temptime=0
+        for k in range(sites):
+            for r in range(maxrides):
+                temptime=temptime+(xjrk[j][r][k]*((distance[k][1])/(trucks[j][2])))
+
+        ####זמן כולל רק חזור!!!!###
+
+        for r in range(1, maxrides):
+            for k in range(sites):
+                temptime = temptime + ((xjrk[j][r - 1][k] * (distance[k][1])/(trucks[j][2])))
+
+        m.addConstr(temptime <= tau)
+    m.addConstr(tau <= 12)
+
+
+    ##########עלות################
+
+    #Creating the Wj matrix vars
+    wj = []
+    for j in range(len(trucks)):
+        wj.append(m.addVar(vtype=GRB.BINARY))
+
+    ##אילוצי עלות
+    for j in range(len(trucks)):
+        tempsum=0
+        for r in range(maxrides):
+            for k in range(sites):
+                tempsum=tempsum+xjrk[j][r][k]
+        m.addConstr(tempsum <= len(containers)*wj[j])
+
+    ##########מרחק################
+
+  #  bjrk = []
+   # for j in range(len(trucks)):
+   #     bjrk.append([])
+   #     #print("j=",j)
+    #    for r in range(maxrides):
+    #        bjrk[j].append([])
+    #        #print("r=",r)
+     #       for k in range (sites):
+      #          bjrk[j][r].append(m.addVar(vtype=GRB.BINARY))
+       #         #print("i=",i)
+
+
+
+    ######אילוץ העמסה בודדת של כל מכולה####
+    for i in range(len(containers)):
+        tempsum = 0
+        for j in range(len(trucks)):
+            for r in range(maxrides):
+                tempsum=tempsum+yjri[j][r][i]
+        m.addConstr(tempsum ==1)
+
+
+    ######אילוץ גודל משאית####
+
+    for j in range(len(trucks)):
+        for r in range(maxrides):
+            tempsum = 0
+            for i in range(len(containers)):
+                tempsum=tempsum+yjri[j][r][i]*containers[i][3]
+            m.addConstr(tempsum<=trucks[j][1])
+
+
+    ######אילוץ נסיעה בודדת של כל משאית לאתר אחד בלבד####
+
+    for j in range(len(trucks)):
+        for r in range(maxrides):
+            tempsum = 0
+            for k in range(sites):
+                tempsum=tempsum+xjrk[j][r][k]
+            m.addConstr(tempsum <= 1)
+
+
+    ######אילוץ הצמדת נסיעות - לא עובד!!!!####
+
+    #for r in range(maxrides):
+     #   present=0
+      #  if r==0:
+      #      kodem=0
+       # for j in range(len(trucks)):
+         #   for i in range(len(containers)):
+         #       present=present+yjri[j][r][i]
+       # m.addConstr(kodem >= present)
+       # kodem=present
+
+    #for r in range (1,maxrides):
+     #   for j in range(len(trucks)):
+      #      for i in range(len(containers)):
+       #         m.addConstr(yjri[j][r][i]>=yjri[j][r-1][i])
+
+    ######אילוץ שיבוץ####
+    for i in range(len(containers)):
+        for j in range(len(trucks)):
+            for k in range(sites):
+                for r in range(maxrides):
+                    m.addConstr(xjrk[j][r][k] >= aik[i][k]*yjri[j][r][i])
+
+    ######יצירת אובייקטים####
+    #################################################################################
+    ####מרחק כולל רק הלוך!!!!###
+    totaldis=0
+
+    for j in range(len(trucks)):
+        for k in range(sites):
+            for r in range(maxrides):
+                totaldis=totaldis+((xjrk[j][r][k]*distance[k][1]))
+
+    ####מרחק כולל - ח יבור חזורים!!!!###
+
+
+    for j in range(len(trucks)):
+        for r in range(1,maxrides):
+            for k in range(sites):
+                totaldis=totaldis+((xjrk[j][r-1][k]*distance[k][1]))
+
+    ########################################################################
+    ####עלות כוללת###
+
+    totalcost=0
+    for j in range(len(trucks)):
+        totalcost=totalcost+wj[j]*trucks[j][3]
+
+    ############################################################
+
+
+
+ #   print('Hello, Are you using a new scenario? y/n')
+  #  inputx = input()
+   # if inputx=="y" and o>0:
+     #   m.Params.TimeLimit = 120
+     #   m.setObjective(totaldis, GRB.MINIMIZE)
+     #   m.optimize()
+      #  mindis = m.objVal
+     #   m.setObjective(tau, GRB.MINIMIZE)
+     #   m.optimize()
+     #   mintime = m.objVal
+     #   m.setObjective(totalcost, GRB.MINIMIZE)
+       # m.optimize()
+      #  mincost = m.objVal
+      #  wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+      #  sheets = wb.sheetnames
+      #  result_sheet = wb[sheets[7]]
+
+    #Then update as you want it
+
+
+       # result_sheet.cell(row=2, column=1).value=mincost
+       # result_sheet.cell(row=2, column=2).value=mindis
+        #result_sheet.cell(row=2, column=3).value=mintime
+
+        #wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+
+    #else:
+
+    wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+    sheets = wb.sheetnames
+    result_sheet = wb[sheets[7]]
+
+        # Then update as you want it
+
+    mincost = result_sheet.cell(row=2, column=1).value
+    mindis = result_sheet.cell(row=2, column=2).value
+    mintime = result_sheet.cell(row=2, column=3).value
+
+
+    #for i in range (81):
+    m.Params.TimeLimit = 50
+    m.setObjective(alpha*((tau-mintime)/(maxtime-mintime))+(1-alpha)*((totalcost-mincost)/(maxcost-mincost)), GRB.MINIMIZE)
+    m.optimize()
+    print("alphaaaaaaaaaaaaaaaaaaaa", alpha)
+
+
+    totalcost=0
+
+    for j in range(len(trucks)):
+        totalcost=totalcost+wj[j].x*trucks[j][3]
+
+    wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+    sheets = wb.sheetnames
+    result_sheet = wb[sheets[8]]
+
+#Then update as you want it
+
+    result_sheet.cell(row=q, column=1).value=alpha
+    result_sheet.cell(row=q, column=2).value=totalcost
+    print("total costtttttttttttttt", totalcost)
+    print("total timeeeeeeeeeeeeee", tau)
+    result_sheet.cell(row=q, column=3).value = float(str(tau)[26:29])
+    q=q+1
+    wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+    alpha = alpha+0.01
+
+
+
+
+#m.setObjective(tau, GRB.MINIMIZE)
+
+
+
+
+#print("כמות משאיות בשימוש")
+#print("כמות משאיות בשימוש")
+#print("כמות משאיות בשימוש")
+#print("כמות משאיות בשימוש")
+
+#for j in range(len(trucks)):
+ #   print("משאית", j+1)
+  #  print(wj[j].x)
+
+#print("משאית נסיעה מכולה")
+#print("משאית נסיעה מכולה")
+#print("משאית נסיעה מכולה")
+#print("משאית נסיעה מכולה")
+
+#for j in range(len(trucks)):
+ #   print("משאית", j+1)
+  #  for r in range(maxrides):
+   #     print("נסיעה", r+1)
+    #    for i in range(len(containers)):
+     #       print("מכולה", i+1)
+      #      print(yjri[j][r][i].x)
+       #     if yjri[j][r][i].x==1:
+        #       print("מסיעה לאתר", containers[i][4])
+
+####print xjrk############
+#print("משאית נסיעה אתר")
+#print("משאית נסיעה אתר")
+#print("משאית נסיעה אתר")
+#print("משאית נסיעה אתר")
+#print("משאית נסיעה אתר")
+#for j in range(len(trucks)):
+ #   print("משאית", j+1)
+  #  for r in range(maxrides):
+   #     print("נוסעת את נסיעה", r+1)
+    #    for k in range(sites):
+     #       print("מגיעה לאתר", k+1)
+      #      print(xjrk[j][r][k].x)
+       #     if xjrk[j][r][k].x==1:
+        #        print("Boom!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+
+###קוד לכתיבה של YJRI באקסל
+wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+sheets = wb.sheetnames
+result_sheet = wb[sheets[5]]
+
+#Then update as you want it
+
+for j in range(len(trucks)):
+    for r in range(maxrides):
+        for i in range(len(containers)):
+
+
+                if yjri[j][r][i].X == 1:
+                    if result_sheet.cell(row=r+2, column=j+2).value==0:
+                        result_sheet.cell(row=r+2, column=j+2).value=str(containers[i][0])
+                    else :
+                        result_sheet.cell(row=r + 2, column=j + 2).value=result_sheet.cell(row=r+2, column=j+2).value+", "+str(containers[i][0])
+
+
+
+
+wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+
+
+#####קוד לכיתבה של XJRK באקסל
+wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+sheets = wb.sheetnames
+result_sheet = wb[sheets[6]]
+
+#Then update as you want it
+
+for j in range(len(trucks)):
+    for r in range(maxrides):
+        for k in range(sites):
+
+            if xjrk[j][r][k].X == 1:
+
+                result_sheet.cell(row=r+2, column=j+2).value="נוסעת לאתר " + str(k+1)
+
+
+wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+
+
+
+
+
+#wb = load_workbook("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+#sheets = wb.sheetnames
+#truck_sheet = wb [sheets[1]]
+
+#Then update as you want it
+#item_count=0
+#sum_load_on_truck=0
+#sitecount=0
+
+#for j in range(len(trucks)):
+ #   for r in range(maxrides):
+  #      for i in range(len(containers)):
+
+   #         if yjri[j][r][i].X == 1:
+    #            truck_sheet.cell(row=j+2, column=item_count+5).value=containers[i][0]
+     #           item_count+=1
+
+
+
+#wb.save("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx")
+
+results = read_excel("C:\\Users\\52730\\OneDrive\\Desktop\\new tables3.xlsx", "results")
+print(results)
+
+
+print("פתרוןןןןןןןןןןןןןןןןןןןןןןןןןןןןן")
+
+print('Obj: %g' % m.objVal)
+
+print("total time for prisa", tau)
+print(str(tau))
+
+totalcost=0
+for j in range(len(trucks)):
+    totalcost=totalcost+wj[j].x*trucks[j][3]
+
+print("total cost for prisa", totalcost)
